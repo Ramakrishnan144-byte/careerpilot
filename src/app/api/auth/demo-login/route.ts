@@ -1,30 +1,77 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { signToken, AUTH_COOKIE_NAME } from '@/lib/auth';
+import { signToken, AUTH_COOKIE_NAME, getAuthCookieOptions } from '@/lib/auth';
+
+const DEMO_EMAIL_MAP: Record<string, string> = {
+  STUDENT_ALEX: 'alex.student@careerpilot.edu',
+  STUDENT_SARAH: 'sarah.data@careerpilot.edu',
+  STUDENT_PRIYA: 'priya.ece@careerpilot.edu',
+  RECRUITER_GOOGLE: 'talent@google.demo',
+  RECRUITER_TCS: 'hiring@tcs.demo',
+  ADMIN: 'placement.dean@careerpilot.edu',
+};
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { roleType } = body; // 'STUDENT_ALEX', 'STUDENT_SARAH', 'STUDENT_PRIYA', 'RECRUITER_GOOGLE', 'RECRUITER_TCS', 'ADMIN'
+    const body = await request.json().catch(() => ({}));
+    const { roleType } = body;
 
-    let targetEmail = 'alex.student@careerpilot.edu';
-    if (roleType === 'STUDENT_SARAH') targetEmail = 'sarah.data@careerpilot.edu';
-    if (roleType === 'STUDENT_PRIYA') targetEmail = 'priya.ece@careerpilot.edu';
-    if (roleType === 'RECRUITER_GOOGLE') targetEmail = 'talent@google.demo';
-    if (roleType === 'RECRUITER_TCS') targetEmail = 'hiring@tcs.demo';
-    if (roleType === 'ADMIN') targetEmail = 'placement.dean@careerpilot.edu';
+    const targetEmail = roleType ? DEMO_EMAIL_MAP[roleType] : null;
 
-    const user = await db.user.findUnique({
-      where: { email: targetEmail },
-      include: {
-        studentProfile: true,
-        recruiterProfile: true,
-      },
-    });
+    if (!targetEmail) {
+      return NextResponse.json(
+        { error: `Invalid roleType '${roleType}'. Valid options: ${Object.keys(DEMO_EMAIL_MAP).join(', ')}` },
+        { status: 400 }
+      );
+    }
+
+    // Check if database URL is configured
+    if (!process.env.DATABASE_URL) {
+      console.error('[AUTH_ERROR] DATABASE_URL environment variable is missing.');
+      return NextResponse.json(
+        { error: 'Database connection is not configured. Please set DATABASE_URL in Vercel environment variables.' },
+        { status: 500 }
+      );
+    }
+
+    let user;
+    try {
+      user = await db.user.findUnique({
+        where: { email: targetEmail },
+        include: {
+          studentProfile: true,
+          recruiterProfile: true,
+        },
+      });
+    } catch (dbErr: any) {
+      console.error('[DEMO_LOGIN_DB_ERROR]', dbErr);
+      if (dbErr?.code === 'P1001' || dbErr?.message?.includes("Can't reach database server")) {
+        return NextResponse.json(
+          { error: 'Cannot connect to PostgreSQL database. Please verify your DATABASE_URL credentials and network access.' },
+          { status: 503 }
+        );
+      }
+      if (dbErr?.code === 'P2021' || dbErr?.message?.includes('does not exist')) {
+        return NextResponse.json(
+          { error: 'Database tables are not initialized. Please run "npx prisma db push" on your database.' },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json(
+        { error: 'Database query failed. Please check server logs and database connectivity.' },
+        { status: 500 }
+      );
+    }
 
     if (!user) {
-      return NextResponse.json({ error: 'Demo account not found. Run db seed.' }, { status: 404 });
+      console.warn(`[DEMO_LOGIN_MISSING_USER] Demo user ${targetEmail} not found in database.`);
+      return NextResponse.json(
+        {
+          error: `Demo account (${targetEmail}) was not found. Please run database seeding ("npm run prisma:seed") to populate demo records.`,
+        },
+        { status: 404 }
+      );
     }
 
     const token = signToken({
@@ -55,17 +102,14 @@ export async function POST(request: Request) {
       },
     });
 
-    response.cookies.set(AUTH_COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7,
-    });
+    response.cookies.set(AUTH_COOKIE_NAME, token, getAuthCookieOptions());
 
     return response;
   } catch (err: any) {
-    console.error('Demo login error:', err);
-    return NextResponse.json({ error: 'Demo login failed.' }, { status: 500 });
+    console.error('[DEMO_LOGIN_UNHANDLED_ERROR]', err);
+    return NextResponse.json(
+      { error: err?.message || 'An unexpected error occurred during demo login.' },
+      { status: 500 }
+    );
   }
 }

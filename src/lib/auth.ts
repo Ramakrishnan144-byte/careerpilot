@@ -3,8 +3,18 @@ import jwt from 'jsonwebtoken';
 import { cookies } from 'next/headers';
 import { db } from './db';
 
-const JWT_SECRET = process.env.AUTH_SECRET || 'careerpilot_super_secret_jwt_key_development_2026';
 export const AUTH_COOKIE_NAME = 'careerpilot_session';
+
+function getJwtSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[AUTH_WARNING] AUTH_SECRET is not configured in production environment variables. Using fallback.');
+    }
+    return 'careerpilot_super_secret_jwt_key_development_2026';
+  }
+  return secret;
+}
 
 export interface TokenPayload {
   userId: string;
@@ -14,6 +24,16 @@ export interface TokenPayload {
   studentProfileId?: string;
   recruiterProfileId?: string;
   companyId?: string;
+}
+
+export function getAuthCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 60 * 60 * 24 * 7, // 7 days
+  };
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -26,12 +46,12 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 export function signToken(payload: TokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: '7d' });
 }
 
 export function verifyToken(token: string): TokenPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as TokenPayload;
+    return jwt.verify(token, getJwtSecret()) as TokenPayload;
   } catch {
     return null;
   }

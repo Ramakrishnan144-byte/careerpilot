@@ -1,8 +1,8 @@
 // Prisma Schema for CareerPilot Platform
-// Supports SQLite locally for instant zero-dependency execution and PostgreSQL for cloud deployment
+// Production-ready PostgreSQL configuration for cloud deployments (Vercel, Supabase, Neon, AWS RDS)
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { hashPassword, signToken, AUTH_COOKIE_NAME } from '@/lib/auth';
+import { hashPassword, signToken, AUTH_COOKIE_NAME, getAuthCookieOptions } from '@/lib/auth';
 import { slugify } from '@/lib/utils';
 
 export async function POST(request: Request) {
@@ -103,13 +103,7 @@ export async function POST(request: Request) {
       },
     });
 
-    response.cookies.set(AUTH_COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7,
-    });
+    response.cookies.set(AUTH_COOKIE_NAME, token, getAuthCookieOptions());
 
     return response;
   } catch (err: any) {
