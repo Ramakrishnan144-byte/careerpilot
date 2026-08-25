@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword, signToken, AUTH_COOKIE_NAME, getAuthCookieOptions } from '@/lib/auth';
+import { formatDatabaseError } from '@/lib/db-errors';
 
 export async function POST(request: Request) {
   try {
@@ -25,16 +26,8 @@ export async function POST(request: Request) {
       });
     } catch (dbErr: any) {
       console.error('[LOGIN_DB_ERROR]', dbErr);
-      if (dbErr?.code === 'P1001' || dbErr?.message?.includes("Can't reach database server")) {
-        return NextResponse.json(
-          { error: 'Cannot connect to database. Please verify DATABASE_URL in environment settings.' },
-          { status: 503 }
-        );
-      }
-      return NextResponse.json(
-        { error: 'Database error occurred during login. Please try again.' },
-        { status: 500 }
-      );
+      const { userMessage, statusCode } = formatDatabaseError(dbErr);
+      return NextResponse.json({ error: userMessage }, { status: statusCode });
     }
 
     if (!user) {

@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { signToken, AUTH_COOKIE_NAME, getAuthCookieOptions } from '@/lib/auth';
+import { formatDatabaseError } from '@/lib/db-errors';
+import { seedDatabase } from '../../../../../prisma/seed';
 
 const DEMO_EMAIL_MAP: Record<string, string> = {
   STUDENT_ALEX: 'alex.student@careerpilot.edu',
@@ -44,31 +46,34 @@ export async function POST(request: Request) {
           recruiterProfile: true,
         },
       });
+
+      // Self-healing: If tables exist but demo user is missing, auto-seed the demo accounts
+      if (!user) {
+        console.log(`[AUTO-SEED] Demo user ${targetEmail} not found. Attempting idempotent auto-seed...`);
+        try {
+          await seedDatabase(db);
+          user = await db.user.findUnique({
+            where: { email: targetEmail },
+            include: {
+              studentProfile: true,
+              recruiterProfile: true,
+            },
+          });
+        } catch (seedErr) {
+          console.warn('[AUTO-SEED] Auto-seed failed:', seedErr);
+        }
+      }
     } catch (dbErr: any) {
       console.error('[DEMO_LOGIN_DB_ERROR]', dbErr);
-      if (dbErr?.code === 'P1001' || dbErr?.message?.includes("Can't reach database server")) {
-        return NextResponse.json(
-          { error: 'Cannot connect to PostgreSQL database. Please verify your DATABASE_URL credentials and network access.' },
-          { status: 503 }
-        );
-      }
-      if (dbErr?.code === 'P2021' || dbErr?.message?.includes('does not exist')) {
-        return NextResponse.json(
-          { error: 'Database tables are not initialized. Please run "npx prisma db push" on your database.' },
-          { status: 500 }
-        );
-      }
-      return NextResponse.json(
-        { error: 'Database query failed. Please check server logs and database connectivity.' },
-        { status: 500 }
-      );
+      const { userMessage, statusCode } = formatDatabaseError(dbErr);
+      return NextResponse.json({ error: userMessage }, { status: statusCode });
     }
 
     if (!user) {
       console.warn(`[DEMO_LOGIN_MISSING_USER] Demo user ${targetEmail} not found in database.`);
       return NextResponse.json(
         {
-          error: `Demo account (${targetEmail}) was not found. Please run database seeding ("npm run prisma:seed") to populate demo records.`,
+          error: `Demo account (${targetEmail}) was not found in the database. Please run database seeding ("npm run prisma:seed") to populate demo records.`,
         },
         { status: 404 }
       );
